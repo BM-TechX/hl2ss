@@ -187,7 +187,10 @@ else:
 
             prev_pose = data.pose.T
             
-            focal_length = fl_x
+            # Focal length should be the euclidian distance between the principal point and the focal point
+            p_p = cx, cy
+            f_p = fl_x, fl_y
+            focal_length = np.linalg.norm(np.array(p_p) - np.array(f_p))
             
             blur = calculate_motion_blur_score(data.payload.image)
 
