@@ -219,7 +219,7 @@ else:
     client.close()
     listener.join()
 
-    # Define the rest of the JSON structure
+# Define the rest of the JSON structure
 nerfstudio_json = {
     "h": 1080,
     "k1": 0,

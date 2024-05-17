@@ -8,9 +8,8 @@ import open3d as o3d
   
 import hl2ss  
 import hl2ss_lnm  
-import hl2ss_mp  
-#import hl2ss_3dcv  
-#import hl2ss_utilities  
+import hl2ss_mp 
+import hl2ss_utilities 
   
 # Settings  
 host = '10.9.50.22'  # HoloLens address  
@@ -20,7 +19,7 @@ buffer_size = 10  # Buffer length in seconds
 max_depth = 3.0  # Maximum depth in meters  
   
 def main():  
-    dataset_dir = 'path/to/dataset'  
+    dataset_dir = 'dsa'  
     setup_directories(dataset_dir)  
     save_intrinsic_calibration(dataset_dir)  
     setup_and_stream(host, dataset_dir, pv_width, pv_height, pv_fps, buffer_size)  
@@ -32,18 +31,18 @@ def setup_directories(dataset_dir):
     os.makedirs(os.path.join(dataset_dir, 'calibration'), exist_ok=True)  
   
 def save_intrinsic_calibration(dataset_dir):  
-    # Placeholder for intrinsic calibration data  
     np.savetxt(os.path.join(dataset_dir, 'calibration', 'intrinsic.txt'), np.eye(3))  
   
 def setup_and_stream(host, dataset_dir, width, height, fps, buffer_size):  
     listener = keyboard.Listener(on_press=on_key_press)  
     listener.start()  
   
-    producer, consumer = initialize_streaming(host, width, height, fps, buffer_size)  
+    producer, consumer, sink_pv, sink_depth = initialize_streaming(host, width, height, fps, buffer_size)  
+  
     try:  
-        process_frames(consumer, dataset_dir, width, height, listener)  
+        process_frames(consumer, dataset_dir, width, height, listener, sink_pv, sink_depth)  
     finally:  
-        cleanup(listener, producer, consumer)  
+        cleanup(listener, producer, consumer, sink_pv, sink_depth)  
   
 def on_key_press(key):  
     if key == keyboard.Key.space:  
@@ -60,18 +59,36 @@ def initialize_streaming(host, width, height, fps, buffer_size):
   
     consumer = hl2ss_mp.consumer()  
     manager = mp.Manager()  
-    consumer.create_sink(producer, hl2ss.StreamPort.PERSONAL_VIDEO, manager, None)  
-    consumer.create_sink(producer, hl2ss.StreamPort.RM_DEPTH_LONGTHROW, manager, None)  
+    sink_pv = consumer.create_sink(producer, hl2ss.StreamPort.PERSONAL_VIDEO, manager, None)
+    sink_depth = consumer.create_sink(producer, hl2ss.StreamPort.RM_DEPTH_LONGTHROW, manager, ...)
+    
+    sink_pv.get_attach_response()
+    sink_depth.get_attach_response()
+
+    # Initialize PV intrinsics and extrinsics ---------------------------------
+    #pv_intrinsics = hl2ss.create_pv_intrinsics_placeholder()
+    #pv_extrinsics = np.eye(4, 4, dtype=np.float32)
+
+    VI = hl2ss_utilities.framerate_counter()
+    VI.reset()
+
   
-    return producer, consumer  
+    return producer, consumer, sink_pv, sink_depth  # Make sure to return the correct number of items  
   
-def process_frames(consumer, dataset_dir, width, height, listener):  
+def process_frames(consumer, dataset_dir, width, height, listener, sink_pv, sink_depth):  
     while listener.running:  
-        sink_pv = consumer.get_sink(hl2ss.StreamPort.PERSONAL_VIDEO)  
-        sink_depth = consumer.get_sink(hl2ss.StreamPort.RM_DEPTH_LONGTHROW)  
-  
-        frame_pv = sink_pv.wait_for_frame()  
-        frame_depth = sink_depth.wait_for_frame()  
+        #frame_pv = sink_pv.wait_for_frame()  
+        #frame_depth = sink_depth.wait_for_frame() 
+        sink_depth.acquire()
+                # Get RM Depth Long Throw frame and nearest (in time) PV frame --------
+        _, frame_depth = sink_depth.get_most_recent_frame()
+        if ((frame_depth is None) or (not hl2ss.is_valid_pose(frame_depth.pose))):
+            continue
+
+        _, frame_pv = sink_pv.get_nearest(frame_depth.timestamp)
+        if ((frame_pv is None) or (not hl2ss.is_valid_pose(frame_pv.pose))):
+            continue
+ 
   
         if frame_pv is None or frame_depth is None:  
             continue  # Skip if any frame is missing  
@@ -89,10 +106,15 @@ def save_data(rgb_image, depth_image, pose, dataset_dir, timestamp):
     np.save(os.path.join(dataset_dir, 'depth', f'{timestamp}.npy'), depth_image)  # Save depth as numpy array  
     np.savetxt(os.path.join(dataset_dir, 'poses', f'{timestamp}.txt'), pose)  
   
-def cleanup(listener, producer, consumer):  
-    listener.stop()  
-    producer.stop_all()  # Stop all streams  
-    consumer.close_all_sinks()  # Close all sinks  
+def cleanup(listener, producer, consumer, sink_pv, sink_depth): 
+    #sink_pv.detach()
+    #sink_depth.detach()
+    producer.stop(hl2ss.StreamPort.PERSONAL_VIDEO)
+    producer.stop(hl2ss.StreamPort.RM_DEPTH_LONGTHROW)
+     
+    #listener.stop()  
+    #producer.stop_all()  # Stop all streams  
+    #consumer.close_all_sinks()  # Close all sinks  
   
 if __name__ == '__main__':  
     main()  
