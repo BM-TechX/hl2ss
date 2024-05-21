@@ -34,7 +34,7 @@ enable_mrc = False
 # Camera parameters
 width = 1920
 height = 1080
-framerate = 15
+framerate = 30
 
 # Framerate denominator (must be > 0)
 # Effective FPS is framerate / divisor

@@ -25,4 +25,8 @@ calibration/*
 !/calibration/README.md
 viewer/features.ann
 viewer/precomputed_features.npy
-viewer/dsa/
+viewer/*/*/*
+viewer/*/*/*
+viewer/*/*/*/*
+viewer/dsanerf.zip
+transforms.json*

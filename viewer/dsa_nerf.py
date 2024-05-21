@@ -55,7 +55,9 @@ decoded_format = 'bgr24'
 
 # ------------------------------------------------------------------------------
 
-def calculate_motion_blur_score(image):  
+def calculate_motion_blur_score(image):
+    if image is None or image.size == 0:  
+        return 0  # Return a default or indicative score for empty images  
     # Convert to grayscale  
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)  
       
@@ -160,82 +162,98 @@ else:
 
     # Define a list to store frame data
     frames_data = []
-
-    while (enable):
-
-        data = client.get_next_packet()
-
-        if data is None:
-            continue
-
-        if prev_pose is None:
-            prev_pose = data.pose.T
-            continue
-        else:
-            print(f'Pose at time {data.timestamp}')
-            print(data.pose.T)
-            print(f'Focal length: {data.payload.focal_length}')
-            print(f'Principal point: {data.payload.principal_point}')
+    frame_count = 0  
+    save_interval = 10  # Save data every 10 frames  
+    nerfstudio_json = {}
+    
+    while (enable):  
+        data = client.get_next_packet()  
+        if data is None:  
+            continue  
+        if prev_pose is None:  
+            prev_pose = data.pose.T  
+            continue  
+        else:  
+            print(f'Pose at time {data.timestamp}')  
+            print(data.pose.T)  
+            print(f'Focal length: {data.payload.focal_length}')  
+            print(f'Principal point: {data.payload.principal_point}')  
+    
+            cx = data.payload.principal_point[0]  
+            cy = data.payload.principal_point[1]  
+            fl_x = data.payload.focal_length[0]  
+            fl_y = data.payload.focal_length[1] 
             
-            cx = data.payload.principal_point[0]
-            cy = data.payload.principal_point[1]
-            fl_x = data.payload.focal_length[0]
-            fl_y = data.payload.focal_length[1]
-
-            angular_velocity, linear_velocity = get_velocity(
-                data.pose.T, prev_pose, 1/framerate)
-
-            prev_pose = data.pose.T
+            f_p = data.payload.focal_length
+            p_p = data.payload.principal_point
             
-            # Focal length should be the euclidian distance between the principal point and the focal point
-            p_p = cx, cy
-            f_p = fl_x, fl_y
-            focal_length = np.linalg.norm(np.array(p_p) - np.array(f_p))
+            #Euclidian distance from focal point to principal point
+            focal_length = np.linalg.norm(f_p - p_p)
             
-            blur = calculate_motion_blur_score(data.payload.image)
-
-            # Collect the pose information and other relevant data
-            frame_data = {
-                # Placeholder, replace with actual data if available
-                "camera_angular_velocity": angular_velocity.tolist(),
-                # Placeholder, replace with actual data if available
-                "camera_linear_velocity": linear_velocity.tolist(),
-                # Assuming timestamp can be used as a unique identifier
-                "file_path": f"./rgb/frame_{data.timestamp}.png",
-                "motion_blur_score": float(blur),  # Placeholder, replace with actual data if available
-                "transform_matrix": data.pose.T.tolist()  # Assuming this is the correct format
-            }
             
-            #Write the focal length to calibration/frameX.txt file
-            calibration_filename = f"./dsanerf/calibration/frame_{data.timestamp}.txt"
-            with open(calibration_filename, 'w') as calibration_file:
-                calibration_file.write(str(focal_length))
-
-            # Save the image frame to a file
-            #image_filename = f"./dsa/rgb/frame_{data.timestamp}.jpg"
-            #cv2.imwrite(image_filename, data.payload.image)
-            
-            image_filename = f"./dsanerf/rgb/frame_{data.timestamp}.png"
-            cv2.imwrite(image_filename, data.payload.image)  
-            
-            transform_matrix = data.pose.T.tolist()
-            pose_filename = f"./dsanerf/poses/frame_{data.timestamp}.txt"
-            with open(pose_filename, 'w') as pose_file:
-                for row in transform_matrix:
-                    pose_file.write(" ".join([str(value) for value in row]) + "\n")
-
-            # Add the frame data to the list
-            frames_data.append(frame_data)
-            
-            cv2.imshow('Video', data.payload.image)
-            if cv2.waitKey(1) == 27:  # Check for ESC key
-                break
-
-        cv2.imshow('Video', data.payload.image)
-        cv2.waitKey(1)
-
-    client.close()
-    listener.join()
+    
+            angular_velocity, linear_velocity = get_velocity(  
+                data.pose.T, prev_pose, 1/framerate)  
+            prev_pose = data.pose.T  
+    
+            if data.payload.image is not None and data.payload.image.size != 0: 
+                
+                image_filename = f"./dsanerf/calibration/frame_{data.timestamp}.txt"
+                with open(image_filename, 'w') as calibration_file:
+                    calibration_file.write(str(focal_length))
+                 
+                blur = calculate_motion_blur_score(data.payload.image)  
+    
+                image_filename = f"./dsanerf/rgb/frame_{data.timestamp}.png"  
+                cv2.imwrite(image_filename, data.payload.image)  
+    
+                transform_matrix = data.pose.T.tolist()  
+                pose_filename = f"./dsanerf/poses/frame_{data.timestamp}.txt"  
+                with open(pose_filename, 'w') as pose_file:  
+                    for row in transform_matrix:  
+                        pose_file.write(" ".join([str(value) for value in row]) + "\n")  
+    
+                frame_data = {  
+                    "camera_angular_velocity": angular_velocity.tolist(),  
+                    "camera_linear_velocity": linear_velocity.tolist(),  
+                    "file_path": image_filename,  
+                    "motion_blur_score": float(blur),  
+                    "transform_matrix": transform_matrix  
+                }  
+    
+                frames_data.append(frame_data)  
+                frame_count += 1
+                      
+                if frame_count % save_interval == 0:  
+                    # Define the rest of the JSON structure
+                    nerfstudio_json = {
+                        "h": 1080,
+                        "k1": 0,
+                        "k2": 0,
+                        "orientation_override": "none",
+                        "p1": 0,
+                        "p2": 0,
+                        #"ply_file_path": "./sparse_pc.ply",
+                        "w": 1920,
+                        "aabb_scale": 16,
+                        "auto_scale_poses_override": False,
+                        # Assuming this is the correct value
+                        "cx": float(cx),
+                        # Assuming this is the correct value
+                        "cy": float(cy),
+                        "fl_x": float(fl_x),  # Assuming this is the correct value
+                        "fl_y": float(fl_y),  # Assuming this is the correct value
+                        "frames": frames_data
+                    }
+                    with open('dsanerf/transforms.json', 'w') as json_file:  
+                        json.dump(nerfstudio_json, json_file, indent=4)  
+    
+            cv2.imshow('Video', data.payload.image if data.payload.image is not None else np.zeros((height, width, 3), dtype=np.uint8))  
+            if cv2.waitKey(1) == 27:  # Check for ESC key  
+                break  
+    
+    client.close()  
+    listener.join()  
 
 # Define the rest of the JSON structure
 nerfstudio_json = {
@@ -257,9 +275,9 @@ nerfstudio_json = {
     "fl_y": float(fl_y),  # Assuming this is the correct value
     "frames": frames_data
 }
-
-# Save the collected data to a JSON file
-with open('dsanerf/transforms.json', 'w') as json_file:
-    json.dump(nerfstudio_json, json_file, indent=4)
-
-hl2ss_lnm.stop_subsystem_pv(host, hl2ss.StreamPort.PERSONAL_VIDEO)
+  
+nerfstudio_json["frames"] = frames_data  
+with open('dsanerf/transforms.json', 'w') as json_file:  
+    json.dump(nerfstudio_json, json_file, indent=4)  
+  
+hl2ss_lnm.stop_subsystem_pv(host, hl2ss.StreamPort.PERSONAL_VIDEO)  
