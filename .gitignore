@@ -28,5 +28,5 @@ viewer/precomputed_features.npy
 viewer/*/*/*
 viewer/*/*/*
 viewer/*/*/*/*
-viewer/dsanerf.zip
 transforms.json*
+viewer/*.zip

@@ -18,7 +18,7 @@ import hl2ss_lnm
 import numpy as np
 
 # Settings --------------------------------------------------------------------
-
+client = None
 # HoloLens address
 host = "10.9.50.22"
 
@@ -156,7 +156,7 @@ else:
     # Define a list to store frame data
     frames_data = []
     frame_count = 0  
-    save_interval = 10  # Save data every 10 frames  
+    save_interval = 50  # Save data every 10 frames  
     nerfstudio_json = {}
     
     while (enable):  
@@ -167,10 +167,10 @@ else:
             prev_pose = data.pose.T  
             continue  
         else:  
-            print(f'Pose at time {data.timestamp}')  
-            print(data.pose.T)  
-            print(f'Focal length: {data.payload.focal_length}')  
-            print(f'Principal point: {data.payload.principal_point}')  
+            #print(f'Pose at time {data.timestamp}')  
+            #print(data.pose.T)  
+            #print(f'Focal length: {data.payload.focal_length}')  
+            #print(f'Principal point: {data.payload.principal_point}')  
     
             cx = data.payload.principal_point[0]  
             cy = data.payload.principal_point[1]  
@@ -182,8 +182,6 @@ else:
             
             #Euclidian distance from focal point to principal point
             focal_length = np.linalg.norm(f_p - p_p)
-            
-            
     
             angular_velocity, linear_velocity = get_velocity(  
                 data.pose.T, prev_pose, 1/framerate)  
@@ -192,8 +190,8 @@ else:
             if data.payload.image is not None and data.payload.image.size != 0: 
                 
                 blur = calculate_motion_blur_score(data.payload.image)  
-    
-                if blur >= 0.23:  # Check if the blur score is below the threshold
+                #print(f'Motion blur score: {blur}')
+                if blur >= 0.10:  # Check if the blur score is below the threshold
                     
                     image_filename = f"./dsanerf/calibration/frame_{data.timestamp}.txt"
                     with open(image_filename, 'w') as calibration_file:
@@ -243,7 +241,7 @@ else:
                         with open('dsanerf/transforms.json', 'w') as json_file:  
                             json.dump(nerfstudio_json, json_file, indent=4)  
     
-            cv2.imshow('Video', data.payload.image if data.payload.image is not None else np.zeros((height, width, 3), dtype=np.uint8))  
+            #cv2.imshow('Video', data.payload.image if data.payload.image is not None else np.zeros((height, width, 3), dtype=np.uint8))  
             if cv2.waitKey(1) == 27:  # Check for ESC key  
                 break  
     
@@ -273,6 +271,7 @@ nerfstudio_json = {
   
 nerfstudio_json["frames"] = frames_data  
 with open('dsanerf/transforms.json', 'w') as json_file:  
-    json.dump(nerfstudio_json, json_file, indent=4)  
+    json.dump(nerfstudio_json, json_file, indent=4)
+    client.close()  
   
 hl2ss_lnm.stop_subsystem_pv(host, hl2ss.StreamPort.PERSONAL_VIDEO)  
