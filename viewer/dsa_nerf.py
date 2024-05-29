@@ -8,7 +8,6 @@
 # Press esc to stop.
 # ------------------------------------------------------------------------------
 
-
 import json
 from pynput import keyboard
 
@@ -35,7 +34,7 @@ enable_mrc = False
 # Camera parameters
 width = 1920
 height = 1080
-framerate = 15
+framerate = 30
 
 # Framerate denominator (must be > 0)
 # Effective FPS is framerate / divisor
@@ -58,28 +57,22 @@ decoded_format = 'bgr24'
 def calculate_motion_blur_score(image):
     if image is None or image.size == 0:  
         return 0  # Return a default or indicative score for empty images  
+    
     # Convert to grayscale  
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)  
-      
-    # Apply edge detection (e.g., using the Sobel operator)  
-    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=5)  
-    sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=5)  
-      
-    # Calculate the magnitude of the gradients  
-    magnitude = np.sqrt(sobelx**2 + sobely**2)  
-      
-    # Threshold the magnitude image to create a binary edge image  
-    _, edge_image = cv2.threshold(magnitude, 50, 255, cv2.THRESH_BINARY)  
-      
-    # Analyze the edges to determine the blur extent (simple example using edge width)  
-    # More sophisticated methods like FFT analysis can also be used here  
-    blur_extent = np.mean(edge_image)  
-      
-    # Normalize the score based on your application's requirements  
-    # Lower scores might indicate more blur  
-    motion_blur_score = 1 - blur_extent / 255  
-      
-    return motion_blur_score  
+    
+    # Calculate the Laplacian
+    laplacian = cv2.Laplacian(gray, cv2.CV_64F)
+    
+    # Calculate the variance of the Laplacian
+    variance_of_laplacian = laplacian.var()
+    
+    # Normalize the score based on your application's requirements
+    # Higher scores indicate sharper images, while lower scores indicate blurrier images
+    normalized_score = variance_of_laplacian / 1000.0  # You can adjust the normalization factor based on your needs
+    
+    return normalized_score
+
 
 def get_velocity(T1, T2, dt):  
     """  
@@ -198,55 +191,57 @@ else:
     
             if data.payload.image is not None and data.payload.image.size != 0: 
                 
-                image_filename = f"./dsanerf/calibration/frame_{data.timestamp}.txt"
-                with open(image_filename, 'w') as calibration_file:
-                    calibration_file.write(str(focal_length))
-                 
                 blur = calculate_motion_blur_score(data.payload.image)  
     
-                image_filename = f"./dsanerf/rgb/frame_{data.timestamp}.png"  
-                cv2.imwrite(image_filename, data.payload.image)  
+                if blur >= 0.23:  # Check if the blur score is below the threshold
+                    
+                    image_filename = f"./dsanerf/calibration/frame_{data.timestamp}.txt"
+                    with open(image_filename, 'w') as calibration_file:
+                        calibration_file.write(str(focal_length))
+                    
+                    image_filename = f"./dsanerf/rgb/frame_{data.timestamp}.png"  
+                    cv2.imwrite(image_filename, data.payload.image)  
     
-                transform_matrix = data.pose.T.tolist()  
-                pose_filename = f"./dsanerf/poses/frame_{data.timestamp}.txt"  
-                with open(pose_filename, 'w') as pose_file:  
-                    for row in transform_matrix:  
-                        pose_file.write(" ".join([str(value) for value in row]) + "\n")  
+                    transform_matrix = data.pose.T.tolist()  
+                    pose_filename = f"./dsanerf/poses/frame_{data.timestamp}.txt"  
+                    with open(pose_filename, 'w') as pose_file:  
+                        for row in transform_matrix:  
+                            pose_file.write(" ".join([str(value) for value in row]) + "\n")  
     
-                frame_data = {  
-                    "camera_angular_velocity": angular_velocity.tolist(),  
-                    "camera_linear_velocity": linear_velocity.tolist(),  
-                    "file_path": image_filename,  
-                    "motion_blur_score": float(blur),  
-                    "transform_matrix": transform_matrix  
-                }  
+                    frame_data = {  
+                        "camera_angular_velocity": angular_velocity.tolist(),  
+                        "camera_linear_velocity": linear_velocity.tolist(),  
+                        "file_path": image_filename,  
+                        "motion_blur_score": float(blur),  
+                        "transform_matrix": transform_matrix  
+                    }  
     
-                frames_data.append(frame_data)  
-                frame_count += 1
+                    frames_data.append(frame_data)  
+                    frame_count += 1
                       
-                if frame_count % save_interval == 0:  
-                    # Define the rest of the JSON structure
-                    nerfstudio_json = {
-                        "h": 1080,
-                        "k1": 0,
-                        "k2": 0,
-                        "orientation_override": "none",
-                        "p1": 0,
-                        "p2": 0,
-                        #"ply_file_path": "./sparse_pc.ply",
-                        "w": 1920,
-                        "aabb_scale": 16,
-                        "auto_scale_poses_override": False,
-                        # Assuming this is the correct value
-                        "cx": float(cx),
-                        # Assuming this is the correct value
-                        "cy": float(cy),
-                        "fl_x": float(fl_x),  # Assuming this is the correct value
-                        "fl_y": float(fl_y),  # Assuming this is the correct value
-                        "frames": frames_data
-                    }
-                    with open('dsanerf/transforms.json', 'w') as json_file:  
-                        json.dump(nerfstudio_json, json_file, indent=4)  
+                    if frame_count % save_interval == 0:  
+                        # Define the rest of the JSON structure
+                        nerfstudio_json = {
+                            "h": 1080,
+                            "k1": 0,
+                            "k2": 0,
+                            "orientation_override": "none",
+                            "p1": 0,
+                            "p2": 0,
+                            #"ply_file_path": "./sparse_pc.ply",
+                            "w": 1920,
+                            "aabb_scale": 16,
+                            "auto_scale_poses_override": False,
+                            # Assuming this is the correct value
+                            "cx": float(cx),
+                            # Assuming this is the correct value
+                            "cy": float(cy),
+                            "fl_x": float(fl_x),  # Assuming this is the correct value
+                            "fl_y": float(fl_y),  # Assuming this is the correct value
+                            "frames": frames_data
+                        }
+                        with open('dsanerf/transforms.json', 'w') as json_file:  
+                            json.dump(nerfstudio_json, json_file, indent=4)  
     
             cv2.imshow('Video', data.payload.image if data.payload.image is not None else np.zeros((height, width, 3), dtype=np.uint8))  
             if cv2.waitKey(1) == 27:  # Check for ESC key  
