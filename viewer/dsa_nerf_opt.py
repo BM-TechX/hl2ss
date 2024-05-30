@@ -25,6 +25,9 @@ decoded_format = 'bgr24'
 folders = ['dsanerf/rgb', 'dsanerf/poses', 'dsanerf/calibration']  
 for folder in folders:  
     os.makedirs(folder, exist_ok=True)  
+    
+hl2ss_lnm.start_subsystem_pv(
+    host, hl2ss.StreamPort.PERSONAL_VIDEO, enable_mrc=enable_mrc)
   
 # Helper functions  
 def calculate_motion_blur_score(image):  
@@ -159,20 +162,13 @@ listener.start()
   
 while enable:  
     data = client.get_next_packet()  
+    if data and data.payload and getattr(data.payload, 'image', None) is not None and data.payload.image.size != 0:  
+        if prev_pose is None:  
+            prev_pose = data.pose.T  
+        thread = threading.Thread(target=frame_processing_thread, args=(data, results))  
+        thread.start()  
+        threads.append(thread)   
 
-    if data and hasattr(data, 'payload') and getattr(data.payload, 'image', None) is not None:  
-        try:  
-            if data.payload.image.size != 0:  
-                # Continue with your processing here  
-                if prev_pose is None:  
-                    prev_pose = data.pose.T  
-                    thread = threading.Thread(target=frame_processing_thread, args=(data, results))  
-                    thread.start()  
-                    threads.append(thread)
-                pass  
-        except AttributeError:  
-            print("AttributeError: The image object does not have a 'size' attribute.")  
-  
 # Wait for all threads to complete  
 for thread in threads:  
     thread.join()  
