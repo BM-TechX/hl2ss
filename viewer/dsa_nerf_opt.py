@@ -195,7 +195,7 @@ nerfstudio_json = {
 }  
   
 # Write the Nerfstudio JSON structure to a file  
-with open('dsanerf/transforms.json', 'w') as json_file:  
+with open('dsanerf/transform.json', 'w') as json_file:  
     json.dump(nerfstudio_json, json_file, indent=4)  
   
 hl2ss_lnm.stop_subsystem_pv(host, hl2ss.StreamPort.PERSONAL_VIDEO)  
