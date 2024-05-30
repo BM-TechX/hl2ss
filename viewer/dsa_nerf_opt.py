@@ -8,6 +8,7 @@ import hl2ss
 import hl2ss_lnm  
 import time  
 import os  
+from functools import partial 
   
 # Settings  
 host = "10.9.50.22"  
@@ -72,11 +73,12 @@ def get_velocity(T1, T2, dt):
     return angular_velocity, linear_velocity  
  
   
-def save_frame_data(data, timestamp):  
+def save_frame_data(data, timestamp):
+    formatted_timestamp = f"{timestamp:.6f}"  
     if data.payload.image is not None:  
-        image_filename = f"./dsanerf/rgb/frame_{timestamp}.png"  
+        image_filename = f"./dsanerf/rgb/frame_{formatted_timestamp}.png"  
         cv2.imwrite(image_filename, data.payload.image)  
-    pose_filename = f"./dsanerf/poses/frame_{timestamp}.txt"  
+    pose_filename = f"./dsanerf/poses/frame_{formatted_timestamp}.txt"  
     with open(pose_filename, 'w') as pose_file:  
         for row in data.pose.T:  
             pose_file.write(" ".join([str(value) for value in row]) + "\n")
@@ -87,12 +89,38 @@ def save_frame_data(data, timestamp):
     #Euclidian distance from focal point to principal point
     focal_length = np.linalg.norm(f_p - p_p)
 
-    image_filename = f"./dsanerf/calibration/frame_{timestamp}.txt"
+    image_filename = f"./dsanerf/calibration/frame_{formatted_timestamp}.txt"
     with open(image_filename, 'w') as calibration_file:
         calibration_file.write(str(focal_length))
   
-    return image_filename, pose_filename  
+    return image_filename  
   
+
+# Helper function to handle thread results  
+def handle_thread_result(result, results_list):  
+    if result is not None:  
+        results_list.append(result)  
+  
+# Frame processing with threading  
+def frame_processing_thread(data, results_list):  
+    timestamp = time.time()  
+    blur = calculate_motion_blur_score(data.payload.image)  
+    if blur >= 0.10:  
+        image_filename = save_frame_data(data, timestamp)  
+        transform_matrix = data.pose.T.tolist()  
+        angular_velocity, linear_velocity = get_velocity(data.pose.T, prev_pose, 1/framerate)  
+        result = {  
+            "camera_angular_velocity": angular_velocity.tolist(),  
+            "camera_linear_velocity": linear_velocity.tolist(),  
+            "file_path": image_filename,  
+            "motion_blur_score": blur,  
+            "transform_matrix": transform_matrix  
+        }  
+        handle_thread_result(result, results_list)  
+    else:  
+        handle_thread_result(None, results_list)  
+        
+'''
 def frame_processing_thread(data, frame_count):  
     timestamp = time.time()  # Using time since epoch as unique identifier  
     blur = calculate_motion_blur_score(data.payload.image)  
@@ -107,7 +135,8 @@ def frame_processing_thread(data, frame_count):
             "transform_matrix": transform_matrix  
         }  
     return None  
-  
+'''
+
 # Start video stream  
 client = hl2ss_lnm.rx_pv(host, hl2ss.StreamPort.PERSONAL_VIDEO, mode=mode, width=width, height=height,  
                          framerate=framerate, divisor=divisor, profile=profile, decoded_format=decoded_format)  
@@ -116,15 +145,15 @@ prev_pose = None
   
 # Main loop  
 enable = True  
-frame_count = 0  
 process_threads = []  
-results = []  
-  
-def on_press(key):  
-    global enable  
-    if key == keyboard.Key.esc:  
-        enable = False  
-  
+results = [] 
+threads = []  
+
+def on_press(key):
+    global enable
+    enable = key != keyboard.Key.esc
+    return enable
+    
 listener = keyboard.Listener(on_press=on_press)  
 listener.start()  
   
@@ -133,32 +162,32 @@ while enable:
     if data and data.payload and data.payload.image.size != 0:  
         if prev_pose is None:  
             prev_pose = data.pose.T  
-        frame_count += 1  
-        t = threading.Thread(target=frame_processing_thread, args=(data, frame_count))  
-        t.start()  
-        process_threads.append(t)  
+        thread = threading.Thread(target=frame_processing_thread, args=(data, results))  
+        thread.start()  
+        threads.append(thread)  
   
-# Cleanup  
-for t in process_threads:  
-    t.join()  
-    if t.result:  
-        results.append(t.result)  
+# Wait for all threads to complete  
+for thread in threads:  
+    thread.join()  
   
-# Save results to JSON  
+client.close()  
+listener.join()  
+
+# Now results should contain all the data from the threads  
 nerfstudio_json = {  
     "h": height,  
-    "k1": 0,  # Assuming no radial distortion coefficient k1  
-    "k2": 0,  # Assuming no radial distortion coefficient k2  
+    "k1": 0,  
+    "k2": 0,  
     "orientation_override": "none",  
-    "p1": 0,  # Assuming no tangential distortion coefficient p1  
-    "p2": 0,  # Assuming no tangential distortion coefficient p2  
+    "p1": 0,  
+    "p2": 0,  
     "w": width,  
     "aabb_scale": 16,  
     "auto_scale_poses_override": False,  
-    "cx": data.payload.principal_point[0],  # Assuming last packet's cx is representative  
-    "cy": data.payload.principal_point[1],  # Assuming last packet's cy is representative  
-    "fl_x": data.payload.focal_length[0],  # Assuming last packet's fl_x is representative  
-    "fl_y": data.payload.focal_length[1],  # Assuming last packet's fl_y is representative  
+    "cx": float(data.payload.principal_point[0]),  
+    "cy": float(data.payload.principal_point[1]),  
+    "fl_x": float(data.payload.focal_length[0]),  
+    "fl_y": float(data.payload.focal_length[1]),  
     "frames": results  
 }  
   
@@ -166,8 +195,5 @@ nerfstudio_json = {
 with open('dsanerf/transforms.json', 'w') as json_file:  
     json.dump(nerfstudio_json, json_file, indent=4)  
   
-client.close()  
-listener.join()  
 hl2ss_lnm.stop_subsystem_pv(host, hl2ss.StreamPort.PERSONAL_VIDEO)  
-  
-print("Data capture and saving complete. JSON structure saved to 'dsanerf/transforms.json'.")  
+print("Finished processing frames.")
