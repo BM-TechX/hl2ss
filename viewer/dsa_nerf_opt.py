@@ -159,12 +159,19 @@ listener.start()
   
 while enable:  
     data = client.get_next_packet()  
-    if data and data.payload and data.payload.image.size != 0:  
-        if prev_pose is None:  
-            prev_pose = data.pose.T  
-        thread = threading.Thread(target=frame_processing_thread, args=(data, results))  
-        thread.start()  
-        threads.append(thread)  
+
+    if data and hasattr(data, 'payload') and getattr(data.payload, 'image', None) is not None:  
+        try:  
+            if data.payload.image.size != 0:  
+                # Continue with your processing here  
+                if prev_pose is None:  
+                    prev_pose = data.pose.T  
+                    thread = threading.Thread(target=frame_processing_thread, args=(data, results))  
+                    thread.start()  
+                    threads.append(thread)
+                pass  
+        except AttributeError:  
+            print("AttributeError: The image object does not have a 'size' attribute.")  
   
 # Wait for all threads to complete  
 for thread in threads:  
