@@ -9,7 +9,6 @@ import hl2ss_lnm
 import time  
 import os  
 from functools import partial 
-import re  
   
 # Settings  
 host = "10.9.50.22"  
@@ -31,20 +30,6 @@ hl2ss_lnm.start_subsystem_pv(
     host, hl2ss.StreamPort.PERSONAL_VIDEO, enable_mrc=enable_mrc)
   
 # Helper functions  
-def format_path(path):  
-    # Regular expression to transform the path  
-    # This regex extracts the necessary parts and formats directly  
-    pattern = r'.*/(rgb/frame_[^\.]+\.[^\.]+)\.png'  
-    replacement = r'./\1.png'  
-  
-    # Replace the path according to the pattern  
-    formatted_path = re.sub(pattern, replacement, path)  
-  
-    # Replace '.' with '-' in the timestamp part  
-    formatted_path = re.sub(r'frame_([^\.]+)\.([^\.]+)\.png', r'frame_\1-\2.png', formatted_path)  
-  
-    return formatted_path  
-    
 def calculate_motion_blur_score(image):  
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)  
     laplacian = cv2.Laplacian(gray, cv2.CV_64F)  
@@ -110,6 +95,9 @@ def save_frame_data(data, timestamp):
     cal_filename = f"./dsanerf/calibration/frame_{formatted_timestamp}.txt"
     with open(cal_filename, 'w') as calibration_file:
         calibration_file.write(str(focal_length))
+        
+    no_dot_timestamp = formatted_timestamp.replace(".", "-")
+    image_filename = f"./rgb/frame_{no_dot_timestamp}.png"
   
     return image_filename  
   
@@ -130,7 +118,7 @@ def frame_processing_thread(data, results_list):
         result = {  
             "camera_angular_velocity": angular_velocity.tolist(),  
             "camera_linear_velocity": linear_velocity.tolist(),  
-            "file_path": format_path(image_filename),  
+            "file_path": image_filename,  
             "motion_blur_score": blur,  
             "transform_matrix": transform_matrix  
         }  
