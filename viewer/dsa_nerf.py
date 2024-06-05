@@ -20,7 +20,7 @@ import numpy as np
 # Settings --------------------------------------------------------------------
 client = None
 # HoloLens address
-host = "10.9.50.22"
+host = "192.168.86.103"
 
 # Operating mode
 # 0: video
