@@ -8,24 +8,40 @@ import hl2ss
 import hl2ss_lnm  
 import time  
 import os  
-from functools import partial 
+from functools import partial
+import argparse  
+import shutil   
+  
+# Parse command-line arguments  
+parser = argparse.ArgumentParser(description='Process frames and save data.')  
+parser.add_argument('folder', type=str, help='Directory to store the outputs')  
+args = parser.parse_args()  
   
 # Settings  
-host = "192.168.86.103"
+host = "192.168.0.86"
 mode = hl2ss.StreamMode.MODE_1  
 enable_mrc = False  
 width = 1920  
 height = 1080  
-framerate = 30  
+framerate = 15  
 divisor = 1  
 profile = hl2ss.VideoProfile.H265_MAIN  
-decoded_format = 'bgr24'  
+decoded_format = 'bgr24'
   
 # Folder setup  
-folders = ['dsanerf/rgb', 'dsanerf/poses', 'dsanerf/calibration']  
+base_folder = args.folder  
+folders = [f'{base_folder}/rgb', f'{base_folder}/poses', f'{base_folder}/calibration']  
+transforms_file = f"{base_folder}/transforms.json"  
+  
+# Remove existing files and folders if they exist  
+if os.path.exists(transforms_file):  
+    os.remove(transforms_file)  
+  
 for folder in folders:  
+    if os.path.exists(folder):  
+        shutil.rmtree(folder)  
     os.makedirs(folder, exist_ok=True)  
-    
+        
 hl2ss_lnm.start_subsystem_pv(
     host, hl2ss.StreamPort.PERSONAL_VIDEO, enable_mrc=enable_mrc)
   
@@ -81,9 +97,9 @@ def save_frame_data(data, timestamp):
     no_dot_timestamp = formatted_timestamp.replace(".", "-")
   
     if data.payload.image is not None:  
-        image_filename = f"./dsanerf/rgb/frame_{no_dot_timestamp}.png"  
+        image_filename = f"./{base_folder}/rgb/frame_{no_dot_timestamp}.png"  
         cv2.imwrite(image_filename, data.payload.image)  
-    pose_filename = f"./dsanerf/poses/frame_{no_dot_timestamp}.txt"  
+    pose_filename = f"./{base_folder}/poses/frame_{no_dot_timestamp}.txt"  
     with open(pose_filename, 'w') as pose_file:  
         for row in data.pose.T:  
             pose_file.write(" ".join([str(value) for value in row]) + "\n")
@@ -94,7 +110,7 @@ def save_frame_data(data, timestamp):
     #Euclidian distance from focal point to principal point
     focal_length = np.linalg.norm(f_p - p_p)
 
-    cal_filename = f"./dsanerf/calibration/frame_{no_dot_timestamp}.txt"
+    cal_filename = f"./{base_folder}/calibration/frame_{no_dot_timestamp}.txt"
     with open(cal_filename, 'w') as calibration_file:
         calibration_file.write(str(focal_length))
         
@@ -181,7 +197,7 @@ nerfstudio_json = {
 }  
   
 # Write the Nerfstudio JSON structure to a file  
-with open('dsanerf/transforms.json', 'w') as json_file:  
+with open(f"{base_folder}/transforms.json", 'w') as json_file:  
     json.dump(nerfstudio_json, json_file, indent=4)  
   
 hl2ss_lnm.stop_subsystem_pv(host, hl2ss.StreamPort.PERSONAL_VIDEO)  
