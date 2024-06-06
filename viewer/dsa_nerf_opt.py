@@ -16,9 +16,13 @@ import shutil
 parser = argparse.ArgumentParser(description='Process frames and save data.')  
 parser.add_argument('folder', type=str, help='Directory to store the outputs')  
 args = parser.parse_args()  
+
+# Global counter for frames that passed the blur filter  
+frames_passed_blur_filter = 0  
+lock = threading.Lock()  # Lock for thread-safe increments to the counter  
   
 # Settings  
-host = "192.168.0.86"
+host = "192.168.0.168"
 mode = hl2ss.StreamMode.MODE_1  
 enable_mrc = False  
 width = 1920  
@@ -45,7 +49,18 @@ for folder in folders:
 hl2ss_lnm.start_subsystem_pv(
     host, hl2ss.StreamPort.PERSONAL_VIDEO, enable_mrc=enable_mrc)
   
-# Helper functions  
+# Helper functions
+def print_frame_count_every_3_seconds():  
+    global frames_passed_blur_filter  
+    last_count = 0  
+  
+    while enable:  # Assuming 'enable' is your main loop control variable  
+        with lock:  
+            new_frames = frames_passed_blur_filter - last_count  
+            print(f"Frames passed blur filter in the last 3 seconds: {new_frames}")  
+            last_count = frames_passed_blur_filter  
+        time.sleep(3)  
+  
 def calculate_motion_blur_score(image):  
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)  
     laplacian = cv2.Laplacian(gray, cv2.CV_64F)  
@@ -124,11 +139,14 @@ def handle_thread_result(result, results_list):
     if result is not None:  
         results_list.append(result)  
   
-# Frame processing with threading  
 def frame_processing_thread(data, results_list, prev_pose):  
+    global frames_passed_blur_filter  
+  
     timestamp = time.time()  
     blur = calculate_motion_blur_score(data.payload.image)  
     if blur >= 0.10:  
+        with lock:  
+            frames_passed_blur_filter += 1  
         image_filename = save_frame_data(data, timestamp)  
         transform_matrix = data.pose.T.tolist()  
         angular_velocity, linear_velocity = get_velocity(data.pose.T, prev_pose, 1/framerate)  
@@ -160,6 +178,10 @@ def on_press(key):
   
 listener = keyboard.Listener(on_press=on_press)  
 listener.start()  
+
+# Start the frame count printer thread  
+frame_count_thread = threading.Thread(target=print_frame_count_every_3_seconds)  
+frame_count_thread.start()  
   
 while enable:  
     data = client.get_next_packet()  
@@ -176,7 +198,8 @@ for thread in threads:
     thread.join()  
   
 client.close()  
-listener.join()  
+listener.join()
+frame_count_thread.join()  
   
 # Now results should contain all the data from the threads  
 nerfstudio_json = {  
